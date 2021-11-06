@@ -27,6 +27,11 @@ void usage(void) {
 #include <string>
 #include <unordered_set>
 
+/*
+unordered_set.find()
+Average case: constant.
+Worst case: linear in container size.
+*/
 std::unordered_set <std::string> st;
 
 int read_file(void) {

@@ -13,6 +13,8 @@
 #define IPv4 4
 #define IPv4_HDR_LENGTH 20
 #define TCP 6
+#define SUCCESS 1
+#define FAILURE -1
 
 char* target;
 
@@ -36,17 +38,15 @@ std::unordered_set <std::string> st;
 
 int read_file(void) {
     // target이 파일 이름
-
 	std::ifstream fout;
 	fout.open(target);
 	if(fout.fail()) {
 		printf("file open failed");
-		return -1;
+		return FAILURE;
 	}
 
     // 한줄 씩
 	std::string s;
-
 	
 	while(!fout.eof()) {
 		std::getline(fout, s);
@@ -57,6 +57,7 @@ int read_file(void) {
 	std::cout << st.size() << std::endl;
 
 	fout.close();
+	return SUCCESS;
 }
 
 /* returns packet id */
@@ -144,20 +145,26 @@ char* strnstr(char* s, char* find, int slen) {
 	return ((char *)s);
 }
 
+const char* HTTP_METHOD[9] = {"PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH", "HEAD", "POST","GET"}; 
+int HTTP_METHOD_LENGTH[9] = {3, 6, 7, 7, 5, 5, 4, 4, 3 };
+const char* CRLF = "\r\n";
+const char* HOST = "Host:";
+const char* WWW = "www.";
+int WWW_LENGTH = strlen(WWW);
+int HOST_LENGTH = strlen(HOST);
+
 static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 	      struct nfq_data *nfa, void *data)
 {
-	const char *data_;
+	const char *payload;
 	u_int32_t id = get_id(nfa);
-	int ret = nfq_get_payload(nfa, (unsigned char**)&data_);
-	// test
-	//return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
+	int total_length = nfq_get_payload(nfa, (unsigned char**)&payload);
+
 	struct libnet_ipv4_hdr* ip_hdr;
 	struct libnet_tcp_hdr* tcp_hdr;
 
 	// ip header 처리
-	//memcpy(&ip_hdr, data_, sizeof(struct libnet_ipv4_hdr));
-	ip_hdr = (struct libnet_ipv4_hdr*)data_;
+	ip_hdr = (struct libnet_ipv4_hdr*)payload;
 	// version 확인
 	if(ip_hdr->ip_v != IPv4) return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 	// protocol 확인
@@ -167,8 +174,7 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 	int ip_length = ip_hdr->ip_hl << 2;
 
 	// tcp header 처리
-	//memcpy(&tcp_hdr, &data_[ip_length], sizeof(struct libnet_tcp_hdr));
-	tcp_hdr = (struct libnet_tcp_hdr*)&data_[ip_length];
+	tcp_hdr = (struct libnet_tcp_hdr*)&payload[ip_length];
 	// 포트 확인
 	if(ntohs(tcp_hdr->th_dport) != 80 && ntohs(tcp_hdr->th_sport) != 80) return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 
@@ -177,40 +183,29 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 
 	// 페이로드 시작 위치 계산
 	int tcp_segment_offset = ip_length + tcp_header_length;
-	int tcp_segment_length = ret - tcp_segment_offset;
+	int tcp_segment_length = total_length - tcp_segment_offset;
 	// 페이로드가 있는지 확인
-	if(tcp_segment_offset == ret) return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
-
-	// c -> c++
-	// HTTP 메서드인지 확인
-	// 전역변수로 선언해보자
-	const char* HTTP_METHOD[9] = {"PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH", "HEAD", "POST","GET"}; 
-	const char* HTTP = "HTTP";
-	int HTTP_METHOD_LENGTH[9] = {3, 6, 7, 7, 5, 5, 4, 4, 3 };
-	const char* CRLF = "\r\n";
-	const char* HOST = "Host:";
-	int HOST_LENGTH = strlen(HOST);
-	//HTTP 를 찾는 것이 효율적일지 메서드를 찾는 것이 효율적일지
+	if(tcp_segment_offset == total_length) return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 
 	int res = 1;
 	for(int i = 9; i--; ) {
 		// tcp_segment_offset 범위를 벗어나는지 체크
-		if(tcp_segment_offset + HTTP_METHOD_LENGTH[i] > ret) continue;
+		if(tcp_segment_offset + HTTP_METHOD_LENGTH[i] > total_length) continue;
 
-		res = strncmp(&data_[tcp_segment_offset], HTTP_METHOD[i], HTTP_METHOD_LENGTH[i]);
+		res = strncmp(&payload[tcp_segment_offset], HTTP_METHOD[i], HTTP_METHOD_LENGTH[i]);
+
 		// Host 찾기
 		if(res == 0) {	
-			char* host_ptr = strnstr((char*)&data_[tcp_segment_offset], (char*)HOST, ret - tcp_segment_offset);
+			char* host_ptr = strnstr((char*)&payload[tcp_segment_offset], (char*)HOST, total_length - tcp_segment_offset);
 			
 			if(host_ptr != NULL) {
-				std::cout << "Find Host" << std::endl;
 				// "Host:" 인지 "Host: " 인지
 				if(*(host_ptr + HOST_LENGTH) == ' ') host_ptr += HOST_LENGTH + 1;
 				else host_ptr += HOST_LENGTH;
 					
 				// url 시작 주소까지 offset
-				int site_offset = host_ptr - data_;
-				char* crlf_ptr = strnstr(host_ptr, (char*)CRLF, ret - site_offset);
+				int site_offset = host_ptr - payload;
+				char* crlf_ptr = strnstr(host_ptr, (char*)CRLF, total_length - site_offset);
 
 
 				// crlf_ptr이 NULL이 아니면 
@@ -223,17 +218,19 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 					}
 					std::cout << site << std::endl;
 					auto ptr = st.find(site);
-					//std::cout << "find result: " << *ptr << std::endl;
-
-					
 
 					if(ptr != st.end()) {
-						// DROP
 						return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
 					}	
-
-					// 기존 주소가 안되면 www. 을 붙이는 경우가 생겨서 
+					
+					if(site.substr(0,WWW_LENGTH) == WWW) {
+						ptr = st.find(site.substr(WWW_LENGTH,site.length()-WWW_LENGTH));			
+						if(ptr != st.end()) return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
+					}
+					
+					// 기존 주소에 www. 을 붙이는 경우가 생겨서 
 					// 이것도 처리해야 함.
+					// https는 못함 ㅠ
 				}
 			}
 			return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
@@ -259,7 +256,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 	target = argv[1];
-	read_file();
+	if(read_file() == FAILURE) return -1;
 	//
 
 	printf("opening library handle\n");

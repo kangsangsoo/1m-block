@@ -33,6 +33,7 @@ void usage(void) {
 unordered_set.find()
 Average case: constant.
 Worst case: linear in container size.
+hash collision prob = 540000 / 2^64
 */
 std::unordered_set <std::string> st;
 

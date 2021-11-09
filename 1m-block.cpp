@@ -11,7 +11,6 @@
 #include <libnet.h>
 
 #define IPv4 4
-#define IPv4_HDR_LENGTH 20
 #define TCP 6
 #define SUCCESS 1
 #define FAILURE -1

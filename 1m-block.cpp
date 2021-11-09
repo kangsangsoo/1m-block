@@ -150,7 +150,8 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 	const char *data_;
 	u_int32_t id = get_id(nfa);
 	int ret = nfq_get_payload(nfa, (unsigned char**)&data_);
-
+	// test
+	//return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 	struct libnet_ipv4_hdr* ip_hdr;
 	struct libnet_tcp_hdr* tcp_hdr;
 
@@ -169,7 +170,7 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 	//memcpy(&tcp_hdr, &data_[ip_length], sizeof(struct libnet_tcp_hdr));
 	tcp_hdr = (struct libnet_tcp_hdr*)&data_[ip_length];
 	// 포트 확인
-	//if(ntohs(tcp_hdr->th_dport) != 80 && ntohs(tcp_hdr->th_sport) != 80) return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
+	if(ntohs(tcp_hdr->th_dport) != 80 && ntohs(tcp_hdr->th_sport) != 80) return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 
 	// tcp_header_length 계산
 	int tcp_header_length = tcp_hdr->th_off << 2;
@@ -202,6 +203,7 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 			char* host_ptr = strnstr((char*)&data_[tcp_segment_offset], (char*)HOST, ret - tcp_segment_offset);
 			
 			if(host_ptr != NULL) {
+				std::cout << "Find Host" << std::endl;
 				// "Host:" 인지 "Host: " 인지
 				if(*(host_ptr + HOST_LENGTH) == ' ') host_ptr += HOST_LENGTH + 1;
 				else host_ptr += HOST_LENGTH;
@@ -209,6 +211,7 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 				// url 시작 주소까지 offset
 				int site_offset = host_ptr - data_;
 				char* crlf_ptr = strnstr(host_ptr, (char*)CRLF, ret - site_offset);
+
 
 				// crlf_ptr이 NULL이 아니면 
 				if(crlf_ptr != NULL) {
@@ -221,10 +224,16 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 					std::cout << site << std::endl;
 					auto ptr = st.find(site);
 					//std::cout << "find result: " << *ptr << std::endl;
+
+					
+
 					if(ptr != st.end()) {
 						// DROP
 						return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
 					}	
+
+					// 기존 주소가 안되면 www. 을 붙이는 경우가 생겨서 
+					// 이것도 처리해야 함.
 				}
 			}
 			return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);

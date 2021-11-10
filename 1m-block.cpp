@@ -53,8 +53,6 @@ int read_file(void) {
 		// 구분은 CRLF로 됨.
 		st.insert(s.substr(0, s.size()-1));
 	}
-	// 대충 1초 걸림
-	std::cout << st.size() << std::endl;
 
 	fout.close();
 	return SUCCESS;
@@ -216,7 +214,6 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 					for(int j = 0; j < site_length; j++) {
 						site.push_back(*(host_ptr + j));
 					}
-					std::cout << site << std::endl;
 					auto ptr = st.find(site);
 
 					if(ptr != st.end()) {
